@@ -40,6 +40,74 @@ public final class IOUtils {
 	// ------------------------------------------------------------------------
 
 	/**
+	 * Copies from one stream to another. Only copy first max bytes.
+	 * @param in
+	 *        InputStream to read from
+	 * @param out
+	 *        OutputStream to write to
+	 * @param max
+	 *        Max bytes to copy
+	 * @param buffSize
+	 *        the size of the buffer
+	 * @param close
+	 *        whether or not close the InputStream and OutputStream at the end. The streams are closed in the finally
+	 *        clause.
+	 * @return number of bytes copied
+	 * @throws IOException
+	 *         thrown if an error occurred while writing to the output stream
+	 */
+	public static long copyBytes(final InputStream in, final OutputStream out, long max,
+		final int buffSize,
+		final boolean close)
+		throws IOException {
+
+		@SuppressWarnings("resource")
+		final PrintStream ps = out instanceof PrintStream ? (PrintStream) out : null;
+		final byte[] buf = new byte[buffSize];
+		long wrote = 0;
+		try {
+			int bytesRead = in.read(buf);
+			int toWrite = bytesRead > max - wrote ? (int) (max-wrote) : bytesRead;
+			while (toWrite > 0) {
+				out.write(buf, 0, toWrite);
+				if ((ps != null) && ps.checkError()) {
+					throw new IOException("Unable to write to output stream.");
+				}
+				wrote += toWrite;
+				bytesRead = in.read(buf);
+				toWrite = bytesRead > max - wrote ? (int) (max-wrote) : bytesRead;
+			}
+		} finally {
+			if (close) {
+				out.close();
+				in.close();
+			}
+		}
+		return wrote;
+	}
+
+	/**
+	 * Copies from one stream to another. Only copy first max bytes.
+	 * @param in
+	 *        InputStream to read from
+	 * @param out
+	 *        OutputStream to write to
+	 * @param max
+	 *        Max bytes to copy
+	 * @param close
+	 *        whether or not close the InputStream and OutputStream at the end. The streams are closed in the finally
+	 *        clause.
+	 * @return number of bytes copied
+	 * @throws IOException
+	 *         thrown if an error occurred while writing to the output stream
+	 */
+	public static long copyBytes(final InputStream in, final OutputStream out, long max,
+		final boolean close)
+		throws IOException {
+		return copyBytes(in, out, max, BLOCKSIZE, close);
+	}
+
+	/**
 	 * Copies from one stream to another.
 	 * 
 	 * @param in
@@ -56,25 +124,7 @@ public final class IOUtils {
 	 */
 	public static void copyBytes(final InputStream in, final OutputStream out, final int buffSize, final boolean close)
 			throws IOException {
-
-		@SuppressWarnings("resource")
-		final PrintStream ps = out instanceof PrintStream ? (PrintStream) out : null;
-		final byte[] buf = new byte[buffSize];
-		try {
-			int bytesRead = in.read(buf);
-			while (bytesRead >= 0) {
-				out.write(buf, 0, bytesRead);
-				if ((ps != null) && ps.checkError()) {
-					throw new IOException("Unable to write to output stream.");
-				}
-				bytesRead = in.read(buf);
-			}
-		} finally {
-			if (close) {
-				out.close();
-				in.close();
-			}
-		}
+		copyBytes(in , out, Long.MAX_VALUE, buffSize, close);
 	}
 
 	/**

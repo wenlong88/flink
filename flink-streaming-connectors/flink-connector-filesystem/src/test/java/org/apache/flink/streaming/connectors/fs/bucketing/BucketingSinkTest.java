@@ -28,6 +28,7 @@ import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.tuple.Tuple2;
+import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.StreamStateHandle;
 import org.apache.flink.streaming.api.operators.StreamSink;
 import org.apache.flink.streaming.connectors.fs.AvroKeyValueSinkWriter;
@@ -36,6 +37,7 @@ import org.apache.flink.streaming.connectors.fs.SequenceFileWriter;
 import org.apache.flink.streaming.connectors.fs.StringWriter;
 import org.apache.flink.streaming.connectors.fs.Writer;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
+import org.apache.flink.streaming.runtime.tasks.OperatorStateHandles;
 import org.apache.flink.streaming.util.OneInputStreamOperatorTestHarness;
 import org.apache.flink.util.NetUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -176,7 +178,7 @@ public class BucketingSinkTest {
 			.setBucketer(new BasePathBucketer<String>())
 			.setPartPrefix("part")
 			.setPendingPrefix("")
-			.setPendingSuffix("");
+			.setPendingSuffix(".pending");
 
 		OneInputStreamOperatorTestHarness<String, Object> testHarness = createTestSink(sink);
 
@@ -191,7 +193,7 @@ public class BucketingSinkTest {
 
 		testHarness.close();
 
-		FSDataInputStream inStream = dfs.open(new Path(outPath + "/part-0-0"));
+		FSDataInputStream inStream = dfs.open(new Path(outPath + "/part-0-0.pending"));
 
 		BufferedReader br = new BufferedReader(new InputStreamReader(inStream));
 
@@ -498,6 +500,114 @@ public class BucketingSinkTest {
 
 		Assert.assertEquals(4, numFiles);
 		Assert.assertEquals(2, numInProgress);
+	}
+
+	/**
+	 * This tests enabling direct output for bucketing sink, which make sink write data directly to the part files.
+	 */
+	@Test
+	public void testDirectOutput() throws Exception {
+		final String outPath = hdfsURI + "/direct-output";
+
+		final int numElements = 20;
+
+		BucketingSink<String> sink = new BucketingSink<String>(outPath)
+			.setBucketer(new BasePathBucketer<String>())
+			.setPartPrefix("part")
+			.setPendingPrefix("pending")
+			.setPendingSuffix("")
+			.enableDirectOutput()
+			.setBatchSize(1);
+
+		OneInputStreamOperatorTestHarness<String, Object> testHarness = createTestSink(sink);
+
+		testHarness.setProcessingTime(0L);
+
+		testHarness.setup();
+		testHarness.open();
+
+		for (int i = 0; i < numElements; i++) {
+			testHarness.processElement(new StreamRecord<>("message #" + Integer.toString(i)));
+		}
+
+		testHarness.close();
+
+
+		for (int i = 0; i < numElements; i++) {
+			FSDataInputStream inStream = dfs.open(new Path(outPath + "/part-0-" + i));
+			BufferedReader br = new BufferedReader(new InputStreamReader(inStream));
+			String line = br.readLine();
+			Assert.assertEquals("message #" + i, line);
+			inStream.close();
+		}
+
+	}
+
+	/**
+	 * This tests truncating current file by copy data when recovering
+	 *
+	 */
+	@Test
+	public void testTruncateByCopy() throws Exception {
+		final String outPath = hdfsURI + "/truncate-by-copy";
+
+		final int numElements = 20;
+
+		BucketingSink<String> sink = new BucketingSink<String>(outPath)
+			.setBucketer(new BasePathBucketer<String>())
+			.setPartPrefix("part")
+			.setPendingPrefix("pending")
+			.setPendingSuffix("")
+			.enableDirectOutput()
+			.enableTruncateByCopy()
+			.setBatchSize(1);
+
+		OneInputStreamOperatorTestHarness<String, Object> testHarness = createTestSink(sink);
+
+		testHarness.setProcessingTime(0L);
+
+		testHarness.setup();
+		testHarness.open();
+
+		for (int i = 0; i < numElements; i++) {
+			testHarness.processElement(new StreamRecord<>("message #" + Integer.toString(i)));
+		}
+
+		StreamStateHandle snapshot1 = testHarness.snapshotLegacy(0, 0);
+
+		for (int i = 0; i < numElements; i++) {
+			testHarness.processElement(new StreamRecord<>("message 2 #" + Integer.toString(i)));
+		}
+
+		testHarness.close();
+
+		OneInputStreamOperatorTestHarness<String, Object> testHarness2 = createTestSink(sink);
+		testHarness2.setProcessingTime(0L);
+
+		testHarness2.setup();
+
+		testHarness2.restore(snapshot1);
+		testHarness2.open();
+		testHarness2.close();
+
+
+		for (int i = 0; i < numElements; i++) {
+			FSDataInputStream inStream = dfs.open(new Path(outPath + "/part-0-" + i));
+			BufferedReader br = new BufferedReader(new InputStreamReader(inStream));
+			String line = br.readLine();
+			Assert.assertEquals("message #" + i, line);
+			line = br.readLine();
+			Assert.assertNull(line);
+			inStream.close();
+		}
+		RemoteIterator iterator = dfs.listFiles(new Path(outPath), true);
+		int count = 0;
+		while(iterator.hasNext()) {
+			count += 1;
+			iterator.next();
+		}
+		Assert.assertEquals(numElements, count);
+
 	}
 
 	/**
