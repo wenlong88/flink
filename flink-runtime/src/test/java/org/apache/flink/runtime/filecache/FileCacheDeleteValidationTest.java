@@ -19,8 +19,10 @@
 package org.apache.flink.runtime.filecache;
 
 import java.io.File;
+import java.io.IOException;
 import java.util.concurrent.Future;
 
+import org.apache.flink.configuration.ConfigConstants;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.api.common.cache.DistributedCache.DistributedCacheEntry;
@@ -28,10 +30,12 @@ import org.apache.flink.api.common.JobID;
 
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 
 import com.google.common.base.Charsets;
 import com.google.common.io.Files;
+import org.junit.rules.TemporaryFolder;
 
 import static org.junit.Assert.fail;
 import static org.junit.Assert.assertTrue;
@@ -57,20 +61,25 @@ public class FileCacheDeleteValidationTest {
 		+ "Da flammt ein blitzendes Verheeren Dem Pfade vor des Donnerschlags. Doch\n"
 		+ "deine Boten, Herr, verehren Das sanfte Wandeln deines Tags.\n";
 
+	@Rule
+	public TemporaryFolder temporaryFolder = new TemporaryFolder();
+
 	private FileCache fileCache;
 	private File f;
 	
 	@Before
-	public void setup() {
+	public void setup() throws IOException {
+		Configuration config = new Configuration();
+		config.setString(ConfigConstants.TASK_MANAGER_TMP_DIR_KEY, temporaryFolder.newFolder().getAbsolutePath());
 		try {
-			fileCache = new FileCache(new Configuration());
+			fileCache = new FileCache(config);
 		}
 		catch (Exception e) {
 			e.printStackTrace();
 			fail("Cannot create FileCache: " + e.getMessage());
 		}
 		
-		f = new File(System.getProperty("java.io.tmpdir"), "cacheFile");
+		f = temporaryFolder.newFile("cacheFile");
 		try {
 			Files.write(testFileContent, f, Charsets.UTF_8);
 		}
