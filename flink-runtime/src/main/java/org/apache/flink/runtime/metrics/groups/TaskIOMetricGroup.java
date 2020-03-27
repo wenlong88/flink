@@ -45,6 +45,7 @@ public class TaskIOMetricGroup extends ProxyMetricGroup<TaskMetricGroup> {
 	private final Meter numRecordsInRate;
 	private final Meter numRecordsOutRate;
 	private final Meter numBuffersOutRate;
+	private final Meter requestBufferTimePerSecond;
 
 	public TaskIOMetricGroup(TaskMetricGroup parent) {
 		super(parent);
@@ -61,6 +62,8 @@ public class TaskIOMetricGroup extends ProxyMetricGroup<TaskMetricGroup> {
 
 		this.numBuffersOut = counter(MetricNames.IO_NUM_BUFFERS_OUT);
 		this.numBuffersOutRate = meter(MetricNames.IO_NUM_BUFFERS_OUT_RATE, new MeterView(numBuffersOut));
+
+		this.requestBufferTimePerSecond = meter(MetricNames.PROCESSOR_REQUEST_BUFFER_TIME, new MeterView(new SimpleCounter()));
 	}
 
 	public IOMetrics createSnapshot() {
@@ -102,7 +105,11 @@ public class TaskIOMetricGroup extends ProxyMetricGroup<TaskMetricGroup> {
 		this.numRecordsOut.addCounter(numRecordsOutCounter);
 	}
 
-	/**
+	public Meter getRequestBufferTime() {
+		return requestBufferTimePerSecond;
+	}
+
+    /**
 	 * A {@link SimpleCounter} that can contain other {@link Counter}s. A call to {@link SumCounter#getCount()} returns
 	 * the sum of this counters and all contained counters.
 	 */

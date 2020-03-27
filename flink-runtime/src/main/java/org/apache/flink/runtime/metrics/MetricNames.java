@@ -22,6 +22,7 @@ package org.apache.flink.runtime.metrics;
  * Collection of metric names.
  */
 public class MetricNames {
+
 	private MetricNames() {
 	}
 
@@ -71,4 +72,8 @@ public class MetricNames {
 	public static String currentInputWatermarkName(int index) {
 		return String.format(IO_CURRENT_INPUT_WATERMARK_PATERN, index);
 	}
+
+	public static final String PROCESSOR_IDLE_TIME = "idleTimeMs" + SUFFIX_RATE;
+
+	public static final String PROCESSOR_REQUEST_BUFFER_TIME = "requestBufferMS" + SUFFIX_RATE;
 }

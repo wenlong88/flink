@@ -21,6 +21,8 @@ package org.apache.flink.runtime.io.network.api.writer;
 import org.apache.flink.annotation.VisibleForTesting;
 import org.apache.flink.core.io.IOReadableWritable;
 import org.apache.flink.metrics.Counter;
+import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.MeterView;
 import org.apache.flink.metrics.SimpleCounter;
 import org.apache.flink.runtime.event.AbstractEvent;
 import org.apache.flink.runtime.io.AvailabilityProvider;
@@ -66,7 +68,7 @@ public abstract class RecordWriter<T extends IOReadableWritable> implements Avai
 
 	private static final Logger LOG = LoggerFactory.getLogger(RecordWriter.class);
 
-	protected final ResultPartitionWriter targetPartition;
+	private final ResultPartitionWriter targetPartition;
 
 	protected final int numberOfChannels;
 
@@ -77,6 +79,8 @@ public abstract class RecordWriter<T extends IOReadableWritable> implements Avai
 	private Counter numBytesOut = new SimpleCounter();
 
 	private Counter numBuffersOut = new SimpleCounter();
+
+	protected Meter requestBufferMs = new MeterView(new SimpleCounter());
 
 	private final boolean flushAlways;
 
@@ -182,6 +186,7 @@ public abstract class RecordWriter<T extends IOReadableWritable> implements Avai
 	public void setMetricGroup(TaskIOMetricGroup metrics) {
 		numBytesOut = metrics.getNumBytesOutCounter();
 		numBuffersOut = metrics.getNumBuffersOutCounter();
+		requestBufferMs = metrics.getRequestBufferTime();
 	}
 
 	protected void finishBufferBuilder(BufferBuilder bufferBuilder) {
@@ -276,6 +281,16 @@ public abstract class RecordWriter<T extends IOReadableWritable> implements Avai
 		}
 	}
 
+	protected void addBufferConsumer(BufferConsumer consumer, int targetChannel) throws IOException {
+		targetPartition.addBufferConsumer(consumer, targetChannel);
+	}
+
+	protected BufferBuilder getBufferBuilder() throws IOException, InterruptedException {
+		long start = System.currentTimeMillis();
+		BufferBuilder builder = targetPartition.getBufferBuilder();
+		requestBufferMs.markEvent(System.currentTimeMillis() - start);
+		return builder;
+	}
 	// ------------------------------------------------------------------------
 
 	/**

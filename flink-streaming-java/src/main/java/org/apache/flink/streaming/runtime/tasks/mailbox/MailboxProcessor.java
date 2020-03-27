@@ -19,6 +19,12 @@ package org.apache.flink.streaming.runtime.tasks.mailbox;
 
 import org.apache.flink.annotation.Internal;
 import org.apache.flink.annotation.VisibleForTesting;
+import org.apache.flink.metrics.Meter;
+import org.apache.flink.metrics.MeterView;
+import org.apache.flink.metrics.MetricGroup;
+import org.apache.flink.metrics.SimpleCounter;
+import org.apache.flink.metrics.groups.UnregisteredMetricsGroup;
+import org.apache.flink.runtime.metrics.MetricNames;
 import org.apache.flink.streaming.api.operators.MailboxExecutor;
 import org.apache.flink.streaming.runtime.tasks.StreamTaskActionExecutor;
 import org.apache.flink.util.ExceptionUtils;
@@ -82,6 +88,8 @@ public class MailboxProcessor implements Closeable {
 
 	private final StreamTaskActionExecutor actionExecutor;
 
+	private IdleTime idleTime = new IdleTime(new UnregisteredMetricsGroup());
+
 	public MailboxProcessor(MailboxDefaultAction mailboxDefaultAction) {
 		this(mailboxDefaultAction, StreamTaskActionExecutor.IMMEDIATE);
 	}
@@ -126,6 +134,10 @@ public class MailboxProcessor implements Closeable {
 	 */
 	public MailboxExecutor getMailboxExecutor(int priority) {
 		return new MailboxExecutorImpl(mailbox, priority, actionExecutor);
+	}
+
+	public void initMetric(MetricGroup metricGroup) {
+		idleTime = new IdleTime(metricGroup);
 	}
 
 	/**
@@ -269,7 +281,13 @@ public class MailboxProcessor implements Closeable {
 		// If the default action is currently not available, we can run a blocking mailbox execution until the default
 		// action becomes available again.
 		while (isDefaultActionUnavailable() && isMailboxLoopRunning()) {
-			mailbox.take(MIN_PRIORITY).run();
+			maybeMail = mailbox.tryTake(MIN_PRIORITY);
+			if (!maybeMail.isPresent()) {
+				long start = System.nanoTime();
+				maybeMail = Optional.of(mailbox.take(MIN_PRIORITY));
+				idleTime.record(System.nanoTime() - start);
+			}
+			maybeMail.get().run();
 		}
 
 		return isMailboxLoopRunning();
@@ -352,6 +370,21 @@ public class MailboxProcessor implements Closeable {
 			if (suspendedDefaultAction == this) {
 				suspendedDefaultAction = null;
 			}
+		}
+	}
+
+	/**
+	 *
+	 */
+	private static class IdleTime {
+		private Meter idleTimePerSecond;
+
+		public IdleTime(MetricGroup metricGroup) {
+			idleTimePerSecond = metricGroup.meter(MetricNames.PROCESSOR_IDLE_TIME, new MeterView(new SimpleCounter()));
+		}
+
+		public void record(long timeMs) {
+			idleTimePerSecond.markEvent(timeMs);
 		}
 	}
 }
