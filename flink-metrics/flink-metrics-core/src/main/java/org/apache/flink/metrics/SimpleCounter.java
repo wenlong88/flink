@@ -24,7 +24,7 @@ package org.apache.flink.metrics;
 public class SimpleCounter implements Counter {
 
 	/** the current count. */
-	private volatile long count;
+	private long count;
 
 	/**
 	 * Increment the current count by 1.
